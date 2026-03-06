@@ -58,6 +58,8 @@ export class AiNotifyStack extends cdk.Stack {
             policyName: `${projectName}DevicePolicy`,
             principal:  certArn,
         });
+        // Explicit DependsOn required: policyName is a plain string literal,
+        // not a CDK token, so CDK cannot infer the ordering relationship automatically.
         policyAttachment.addDependency(iotPolicy);
 
         // IAM Managed Policy for the nakom.is Lambda to publish to the event topic
