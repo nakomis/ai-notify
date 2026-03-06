@@ -17,6 +17,9 @@ export class AiNotifyStack extends cdk.Stack {
         // ThingWithCert saves to SSM automatically:
         //   /AiNotify/AiNotifyThing/certPem
         //   /AiNotify/AiNotifyThing/privKey
+        // certId resolves to the certificate ID (not the full ARN). If upgrading
+        // cdk-iot-core-certificates-v3, verify certId still returns just the ID,
+        // not a full ARN — the certArn construction below depends on this.
         const { certId } = new ThingWithCert(this, 'Thing', {
             thingName,
             saveToParamStore: true,
@@ -52,10 +55,9 @@ export class AiNotifyStack extends cdk.Stack {
         // Attach the device policy to the certificate.
         const certArn = `arn:aws:iot:${this.region}:${this.account}:cert/${certId}`;
         const policyAttachment = new iot.CfnPolicyPrincipalAttachment(this, 'PolicyAttachment', {
-            policyName: iotPolicy.policyName!,
+            policyName: `${projectName}DevicePolicy`,
             principal:  certArn,
         });
-        policyAttachment.addDependency(iotPolicy);
 
         // IAM Managed Policy for the nakom.is Lambda to publish to the event topic
         // and read the IoT endpoint from SSM.
@@ -68,6 +70,9 @@ export class AiNotifyStack extends cdk.Stack {
                     actions:   ['iot:Publish'],
                     resources: [`arn:aws:iot:${this.region}:${this.account}:topic/${topic}`],
                 }),
+                // /AiNotify/IotEndpoint must be created manually after first deploy.
+                // See CLAUDE.md for the aws ssm put-parameter command.
+                // Without this parameter, the Lambda cold start will fail.
                 new iam.PolicyStatement({
                     effect:    iam.Effect.ALLOW,
                     actions:   ['ssm:GetParameter'],
@@ -80,6 +85,8 @@ export class AiNotifyStack extends cdk.Stack {
 
         // Store the policy ARN in SSM so the nakom.is CDK stack can reference it
         // without hardcoding the ARN.
+        // Default removal policy is RETAIN — if stack is destroyed and redeployed,
+        // this parameter must be manually deleted first to avoid a conflict.
         new ssm.StringParameter(this, 'IotPublishPolicyArn', {
             parameterName: `/${projectName}/IotPublishPolicyArn`,
             stringValue:   publishPolicy.managedPolicyArn,
