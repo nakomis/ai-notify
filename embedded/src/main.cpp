@@ -1,0 +1,182 @@
+/**
+ * AiNotifyTmp - Main Application
+ *
+ * ESP32-S3-WROOM N16R8 CAM
+ * - 16MB Flash, 8MB PSRAM
+ * - SD Card (4-bit SDMMC)
+ * - BLE for configuration and OTA
+ */
+
+#include <Arduino.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
+
+// Project libraries
+#include "SDLogger.h"
+#include "WifiConnect.h"
+#include "WifiBleService.h"
+#include "OTAUpdate.h"
+#include "OTABleService.h"
+
+// Project configuration
+#include "version.h"
+#include "secrets.h"
+
+// Global instances
+WifiConnect wifi;
+OTAUpdate otaUpdate;
+
+// BLE server and services
+BLEServer* pServer = nullptr;
+WifiBleService wifiBleService;
+OTABleService otaBleService;
+
+// Feature flags
+static bool sdCardReady = false;
+
+// Connection tracking
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+
+// BLE Server callbacks
+class ServerCallbacks : public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) override {
+        deviceConnected = true;
+        Serial.println("BLE client connected");
+        if (sdCardReady) {
+            LOG_I("BLE client connected");
+        }
+    }
+
+    void onDisconnect(BLEServer* pServer) override {
+        deviceConnected = false;
+        Serial.println("BLE client disconnected");
+        if (sdCardReady) {
+            LOG_I("BLE client disconnected");
+        }
+    }
+};
+
+void initSDCard() {
+    Serial.println("Initializing SD card...");
+
+    sdCardReady = SDLogger::getInstance().init("/logs");
+    if (sdCardReady) {
+        LOG_I("=== AiNotifyTmp Started ===");
+        LOG_IF("Version: %s", FIRMWARE_VERSION);
+        LOG_IF("Build: %s %s", __DATE__, __TIME__);
+    } else {
+        Serial.println("SD card initialization failed - continuing without logging");
+    }
+}
+
+void initBLE() {
+    Serial.println("Initializing BLE...");
+    if (sdCardReady) {
+        LOG_I("Initializing BLE...");
+    }
+
+    // Initialize BLE with project name
+    BLEDevice::init(PROJECT_NAME);
+
+    // Create BLE server
+    pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new ServerCallbacks());
+
+    // Initialize WiFi BLE service (provides BLE commands for WiFi config)
+    wifiBleService.setWifi(&wifi);
+    wifiBleService.init(pServer);
+
+    // Initialize OTA BLE service (provides BLE commands for OTA updates)
+    otaBleService.setOTAUpdate(&otaUpdate);
+    otaBleService.setWifi(&wifi);
+    otaBleService.setVersionString(FIRMWARE_VERSION);
+    otaBleService.init(pServer);
+
+    // Start advertising
+    BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
+    pAdvertising->setScanResponse(true);
+    pAdvertising->setMinPreferred(0x06);  // For iOS compatibility
+    pAdvertising->start();
+
+    Serial.printf("BLE initialized, advertising as '%s'\n", PROJECT_NAME);
+    if (sdCardReady) {
+        LOG_IF("BLE initialized, advertising as '%s'", PROJECT_NAME);
+    }
+}
+
+void initWiFi() {
+    wifi.begin();
+
+    // Try to connect with stored credentials
+    if (wifi.hasCredentials()) {
+        Serial.printf("Found stored WiFi credentials for '%s', attempting connection...\n", wifi.getSSID().c_str());
+        if (sdCardReady) {
+            LOG_IF("Connecting to WiFi '%s'...", wifi.getSSID().c_str());
+        }
+
+        if (wifi.connect() == 0) {
+            Serial.printf("WiFi connected: %s\n", WiFi.localIP().toString().c_str());
+            if (sdCardReady) {
+                LOG_IF("WiFi connected: %s", WiFi.localIP().toString().c_str());
+            }
+        } else {
+            Serial.println("WiFi connection failed, use BLE to configure");
+            if (sdCardReady) {
+                LOG_W("WiFi connection failed");
+            }
+        }
+    } else {
+        Serial.println("No stored WiFi credentials, use BLE to configure");
+        if (sdCardReady) {
+            LOG_I("No stored WiFi credentials");
+        }
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    delay(1000);
+
+    Serial.println();
+    Serial.println("================================");
+    Serial.printf("AiNotifyTmp %s\n", FIRMWARE_VERSION);
+    Serial.println("================================");
+    Serial.println();
+
+    // Initialize components
+    initSDCard();
+    initWiFi();
+    initBLE();
+
+    Serial.println("Setup complete!");
+    if (sdCardReady) {
+        LOG_I("Setup complete!");
+    }
+}
+
+void loop() {
+    // Handle BLE services (deferred command processing)
+    wifiBleService.handle();
+    otaBleService.handle();
+
+    // Handle BLE connection state changes
+    if (deviceConnected && !oldDeviceConnected) {
+        // Device just connected
+        oldDeviceConnected = deviceConnected;
+    }
+
+    if (!deviceConnected && oldDeviceConnected) {
+        // Device just disconnected - restart advertising
+        delay(500);
+        BLEDevice::getAdvertising()->start();
+        oldDeviceConnected = deviceConnected;
+    }
+
+    // Your application logic here
+    // ...
+
+    delay(100);
+}
