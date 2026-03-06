@@ -1,182 +1,162 @@
-/**
- * AiNotify - Main Application
- *
- * ESP32-S3-WROOM N16R8 CAM
- * - 16MB Flash, 8MB PSRAM
- * - SD Card (4-bit SDMMC)
- * - BLE for configuration and OTA
- */
-
 #include <Arduino.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
 
-// Project libraries
 #include "SDLogger.h"
 #include "WifiConnect.h"
 #include "WifiBleService.h"
 #include "OTAUpdate.h"
 #include "OTABleService.h"
-
-// Project configuration
 #include "version.h"
 #include "secrets.h"
+#include "AiNotifyController.h"
 
-// Global instances
-WifiConnect wifi;
-OTAUpdate otaUpdate;
+static const int           MQTT_PORT         = 8883;
+static const char          MQTT_TOPIC[]      = "ai-notify/events";
+static const unsigned long MQTT_RECONNECT_MS = 5000;
 
-// BLE server and services
-BLEServer* pServer = nullptr;
-WifiBleService wifiBleService;
-OTABleService otaBleService;
+static WiFiClientSecure   secureClient;
+static PubSubClient       mqttClient(secureClient);
+static AiNotifyController controller;
 
-// Feature flags
-static bool sdCardReady = false;
+static WifiConnect    wifi;
+static WifiBleService wifiBleService;
+static OTAUpdate      otaUpdate;
+static OTABleService  otaBleService;
 
-// Connection tracking
-bool deviceConnected = false;
-bool oldDeviceConnected = false;
+static BLEServer*  pServer           = nullptr;
+static bool        deviceConnected   = false;
+static bool        oldDeviceConnected = false;
+static bool        sdCardReady       = false;
+static unsigned long lastMqttReconnect = 0;
 
-// BLE Server callbacks
 class ServerCallbacks : public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) override {
-        deviceConnected = true;
-        Serial.println("BLE client connected");
-        if (sdCardReady) {
-            LOG_I("BLE client connected");
-        }
-    }
-
-    void onDisconnect(BLEServer* pServer) override {
-        deviceConnected = false;
-        Serial.println("BLE client disconnected");
-        if (sdCardReady) {
-            LOG_I("BLE client disconnected");
-        }
-    }
+    void onConnect(BLEServer*)    override { deviceConnected = true; }
+    void onDisconnect(BLEServer*) override { deviceConnected = false; }
 };
 
-void initSDCard() {
-    Serial.println("Initializing SD card...");
+static void mqttCallback(char* topic, byte* payload, unsigned int length) {
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, payload, length);
+    if (err) {
+        LOG_E("MQTT JSON parse error");
+        return;
+    }
 
-    sdCardReady = SDLogger::getInstance().init("/logs");
-    if (sdCardReady) {
-        LOG_I("=== AiNotify Started ===");
-        LOG_IF("Version: %s", FIRMWARE_VERSION);
-        LOG_IF("Build: %s %s", __DATE__, __TIME__);
-    } else {
-        Serial.println("SD card initialization failed - continuing without logging");
+    const char* event = doc["event"] | "";
+    if (strcmp(event, "question") == 0) {
+        controller.onQuestion(String(doc["text"] | ""));
+    } else if (strcmp(event, "ai_start") == 0) {
+        controller.onAiStart();
+    } else if (strcmp(event, "tool_start") == 0) {
+        controller.onToolStart(String(doc["tool"] | ""));
+    } else if (strcmp(event, "tool_end") == 0) {
+        controller.onToolEnd(String(doc["tool"] | ""));
+    } else if (strcmp(event, "done") == 0) {
+        controller.onDone();
     }
 }
 
-void initBLE() {
-    Serial.println("Initializing BLE...");
-    if (sdCardReady) {
-        LOG_I("Initializing BLE...");
+static bool mqttConnect() {
+    secureClient.setCACert(AWS_CERT_CA);
+    secureClient.setCertificate(AWS_CERT_CRT);
+    secureClient.setPrivateKey(AWS_CERT_PRIVATE);
+    mqttClient.setServer(AWS_IOT_ENDPOINT, MQTT_PORT);
+    mqttClient.setCallback(mqttCallback);
+    mqttClient.setBufferSize(4096);   // question text can be up to 2000 chars
+
+    LOG_IF("Connecting MQTT to %s ...", AWS_IOT_ENDPOINT);
+    if (mqttClient.connect(AWS_IOT_THING_NAME)) {
+        mqttClient.subscribe(MQTT_TOPIC);
+        LOG_IF("MQTT subscribed: %s", MQTT_TOPIC);
+        return true;
     }
-
-    // Initialize BLE with project name
-    BLEDevice::init(PROJECT_NAME);
-
-    // Create BLE server
-    pServer = BLEDevice::createServer();
-    pServer->setCallbacks(new ServerCallbacks());
-
-    // Initialize WiFi BLE service (provides BLE commands for WiFi config)
-    wifiBleService.setWifi(&wifi);
-    wifiBleService.init(pServer);
-
-    // Initialize OTA BLE service (provides BLE commands for OTA updates)
-    otaBleService.setOTAUpdate(&otaUpdate);
-    otaBleService.setWifi(&wifi);
-    otaBleService.setVersionString(FIRMWARE_VERSION);
-    otaBleService.init(pServer);
-
-    // Start advertising
-    BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
-    pAdvertising->setScanResponse(true);
-    pAdvertising->setMinPreferred(0x06);  // For iOS compatibility
-    pAdvertising->start();
-
-    Serial.printf("BLE initialized, advertising as '%s'\n", PROJECT_NAME);
-    if (sdCardReady) {
-        LOG_IF("BLE initialized, advertising as '%s'", PROJECT_NAME);
-    }
-}
-
-void initWiFi() {
-    wifi.begin();
-
-    // Try to connect with stored credentials
-    if (wifi.hasCredentials()) {
-        Serial.printf("Found stored WiFi credentials for '%s', attempting connection...\n", wifi.getSSID().c_str());
-        if (sdCardReady) {
-            LOG_IF("Connecting to WiFi '%s'...", wifi.getSSID().c_str());
-        }
-
-        if (wifi.connect() == 0) {
-            Serial.printf("WiFi connected: %s\n", WiFi.localIP().toString().c_str());
-            if (sdCardReady) {
-                LOG_IF("WiFi connected: %s", WiFi.localIP().toString().c_str());
-            }
-        } else {
-            Serial.println("WiFi connection failed, use BLE to configure");
-            if (sdCardReady) {
-                LOG_W("WiFi connection failed");
-            }
-        }
-    } else {
-        Serial.println("No stored WiFi credentials, use BLE to configure");
-        if (sdCardReady) {
-            LOG_I("No stored WiFi credentials");
-        }
-    }
+    LOG_IF("MQTT connect failed, rc=%d", mqttClient.state());
+    return false;
 }
 
 void setup() {
     Serial.begin(115200);
     delay(1000);
+    Serial.println("AI Notify starting");
 
-    Serial.println();
-    Serial.println("================================");
-    Serial.printf("AiNotify %s\n", FIRMWARE_VERSION);
-    Serial.println("================================");
-    Serial.println();
-
-    // Initialize components
-    initSDCard();
-    initWiFi();
-    initBLE();
-
-    Serial.println("Setup complete!");
+    sdCardReady = SDLogger::getInstance().init("/logs");
     if (sdCardReady) {
-        LOG_I("Setup complete!");
+        LOG_I("=== AI Notify ===");
+        LOG_IF("Version: %s", FIRMWARE_VERSION);
+        LOG_IF("Build: %s %s", __DATE__, __TIME__);
     }
+
+    controller.begin();
+
+    xTaskCreate(ledRainbowTask, "ledRainbow", 2048, &controller, 1, nullptr);
+    xTaskCreate(lcdMarqueeTask, "lcdMarquee", 2048, &controller, 1, nullptr);
+
+    BLEDevice::init("AiNotify");
+    pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new ServerCallbacks());
+
+    wifiBleService.setWifi(&wifi);
+    wifiBleService.init(pServer);
+
+    otaBleService.setOTAUpdate(&otaUpdate);
+    otaBleService.setWifi(&wifi);
+    otaBleService.setVersionString(FIRMWARE_VERSION);
+    otaBleService.init(pServer);
+
+    BLEDevice::getAdvertising()->start();
+    LOG_I("BLE advertising started");
+
+    wifi.begin();
+    if (wifi.hasCredentials()) {
+        LOG_IF("Connecting to WiFi '%s'...", wifi.getSSID().c_str());
+        if (wifi.connect() == 0) {
+            LOG_IF("WiFi connected: %s", WiFi.localIP().toString().c_str());
+            mqttConnect();
+        } else {
+            LOG_W("WiFi connection failed — configure via BLE");
+        }
+    } else {
+        LOG_I("No WiFi credentials — configure via BLE");
+    }
+
+    LOG_I("Setup complete");
 }
 
 void loop() {
-    // Handle BLE services (deferred command processing)
     wifiBleService.handle();
     otaBleService.handle();
 
-    // Handle BLE connection state changes
+    // BLE reconnect advertising
     if (deviceConnected && !oldDeviceConnected) {
-        // Device just connected
         oldDeviceConnected = deviceConnected;
     }
-
     if (!deviceConnected && oldDeviceConnected) {
-        // Device just disconnected - restart advertising
         delay(500);
         BLEDevice::getAdvertising()->start();
         oldDeviceConnected = deviceConnected;
     }
 
-    // Your application logic here
-    // ...
+    // MQTT keepalive and reconnect
+    bool wifiOk = (WiFi.status() == WL_CONNECTED);
+    if (wifiOk) {
+        if (!mqttClient.connected()) {
+            unsigned long now = millis();
+            if (now - lastMqttReconnect > MQTT_RECONNECT_MS) {
+                lastMqttReconnect = now;
+                if (!mqttConnect()) {
+                    controller.onWifiReconnecting();
+                }
+            }
+        } else {
+            mqttClient.loop();
+        }
+    } else {
+        controller.onWifiReconnecting();
+    }
 
-    delay(100);
+    delay(10);
 }
