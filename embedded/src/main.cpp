@@ -31,7 +31,8 @@ static BLEServer*  pServer           = nullptr;
 static bool        deviceConnected   = false;
 static bool        oldDeviceConnected = false;
 static bool        sdCardReady       = false;
-static unsigned long lastMqttReconnect = 0;
+static unsigned long lastMqttReconnect        = 0;
+static unsigned long lastWifiReconnectDisplay = 0;
 
 class ServerCallbacks : public BLEServerCallbacks {
     void onConnect(BLEServer*)    override { deviceConnected = true; }
@@ -92,8 +93,8 @@ void setup() {
 
     controller.begin();
 
-    xTaskCreate(ledRainbowTask, "ledRainbow", 2048, &controller, 1, nullptr);
-    xTaskCreate(lcdMarqueeTask, "lcdMarquee", 2048, &controller, 1, nullptr);
+    xTaskCreate(ledRainbowTask, "ledRainbow", 4096, &controller, 1, nullptr);
+    xTaskCreate(lcdMarqueeTask, "lcdMarquee", 4096, &controller, 1, nullptr);
 
     BLEDevice::init("AiNotify");
     pServer = BLEDevice::createServer();
@@ -155,7 +156,11 @@ void loop() {
             mqttClient.loop();
         }
     } else {
-        controller.onWifiReconnecting();
+        unsigned long now = millis();
+        if (now - lastWifiReconnectDisplay >= 5000) {
+            lastWifiReconnectDisplay = now;
+            controller.onWifiReconnecting();
+        }
     }
 
     delay(10);
