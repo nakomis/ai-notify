@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AiNotifyTmp Firmware Build and Upload Script
+AiNotify Firmware Build and Upload Script
 Handles version bumping, building firmware, and uploading to S3
 """
 
@@ -19,7 +19,7 @@ class FirmwareBuilder:
         self.version_file = self.project_root / "include" / "version.h"
         self.platformio_ini = self.project_root / "platformio.ini"
         self.s3_bucket = "nakomis-firmware-updates"
-        self.project_name = "AiNotifyTmp"
+        self.project_name = "AiNotify"
 
     def get_current_version(self):
         """Extract current version from version.h"""
@@ -180,7 +180,7 @@ def ensure_aws_profile():
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Build and upload AiNotifyTmp firmware',
+        description='Build and upload AiNotify firmware',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
@@ -214,7 +214,7 @@ Examples:
         sys.exit(1)
 
     print("=" * 60)
-    print("  AiNotifyTmp Firmware Build & Upload")
+    print("  AiNotify Firmware Build & Upload")
     print("=" * 60)
     print(f"AWS Profile: {aws_profile}")
 

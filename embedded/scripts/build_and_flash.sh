@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# AiNotifyTmp - Build and Flash Script
+# AiNotify - Build and Flash Script
 # Development workflow: build and flash to connected device
 #
 
@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 echo -e "${GREEN}================================${NC}"
-echo -e "${GREEN}  AiNotifyTmp - Build & Flash${NC}"
+echo -e "${GREEN}  AiNotify - Build & Flash${NC}"
 echo -e "${GREEN}================================${NC}"
 echo ""
 

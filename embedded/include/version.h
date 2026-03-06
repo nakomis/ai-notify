@@ -4,7 +4,7 @@
 // Auto-generated version information
 #define FIRMWARE_VERSION "1.0.0"
 #define BUILD_TIMESTAMP __DATE__ " " __TIME__
-#define PROJECT_NAME "AiNotifyTmp"
+#define PROJECT_NAME "AiNotify"
 
 // Version components for programmatic access
 #define VERSION_MAJOR 1

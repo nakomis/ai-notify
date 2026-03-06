@@ -1,5 +1,5 @@
 /**
- * AiNotifyTmp - Main Application
+ * AiNotify - Main Application
  *
  * ESP32-S3-WROOM N16R8 CAM
  * - 16MB Flash, 8MB PSRAM
@@ -64,7 +64,7 @@ void initSDCard() {
 
     sdCardReady = SDLogger::getInstance().init("/logs");
     if (sdCardReady) {
-        LOG_I("=== AiNotifyTmp Started ===");
+        LOG_I("=== AiNotify Started ===");
         LOG_IF("Version: %s", FIRMWARE_VERSION);
         LOG_IF("Build: %s %s", __DATE__, __TIME__);
     } else {
@@ -142,7 +142,7 @@ void setup() {
 
     Serial.println();
     Serial.println("================================");
-    Serial.printf("AiNotifyTmp %s\n", FIRMWARE_VERSION);
+    Serial.printf("AiNotify %s\n", FIRMWARE_VERSION);
     Serial.println("================================");
     Serial.println();
 

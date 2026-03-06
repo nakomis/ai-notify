@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# AiNotifyTmp - Factory Setup Script
+# AiNotify - Factory Setup Script
 # Downloads bootloader from S3, builds main app, and flashes both
 #
 
@@ -16,14 +16,14 @@ NC='\033[0m' # No Color
 # Configuration
 S3_BUCKET="nakomis-firmware-updates"
 BOOTLOADER_PROJECT="Bootloader"
-PROJECT_NAME="AiNotifyTmp"
+PROJECT_NAME="AiNotify"
 
 # Find script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}  AiNotifyTmp - Factory Setup${NC}"
+echo -e "${GREEN}  AiNotify - Factory Setup${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 
