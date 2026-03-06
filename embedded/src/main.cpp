@@ -112,6 +112,9 @@ void setup() {
     LOG_I("BLE advertising started");
 
     wifi.begin();
+    if (!wifi.hasCredentials()) {
+        wifi.setCredentials(WIFI_SSID, WIFI_PASSWORD);
+    }
     if (wifi.hasCredentials()) {
         LOG_IF("Connecting to WiFi '%s'...", wifi.getSSID().c_str());
         if (wifi.connect() == 0) {
