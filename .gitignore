@@ -21,3 +21,5 @@ embedded/*.bin
 *.key
 *.crt
 secrets.json
+**/.vscode
+**/cdk.*.out/
