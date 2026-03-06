@@ -58,6 +58,7 @@ export class AiNotifyStack extends cdk.Stack {
             policyName: `${projectName}DevicePolicy`,
             principal:  certArn,
         });
+        policyAttachment.addDependency(iotPolicy);
 
         // IAM Managed Policy for the nakom.is Lambda to publish to the event topic
         // and read the IoT endpoint from SSM.
