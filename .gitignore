@@ -1,0 +1,23 @@
+# CDK
+cdk.out/
+infra/node_modules/
+infra/dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# PlatformIO
+embedded/.pio/
+embedded/include/secrets.h
+embedded/*.bin
+
+# macOS
+.DS_Store
+
+# Certificates and secrets
+*.pem
+*.key
+*.crt
+secrets.json
